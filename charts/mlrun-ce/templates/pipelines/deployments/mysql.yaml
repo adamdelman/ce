@@ -23,6 +23,10 @@ spec:
         app: mysql
         application-crd-id: kubeflow-pipelines
     spec:
+      {{- if .Values.pipelines.db.securityContext }}
+      securityContext:
+{{ .Values.pipelines.db.securityContext | toYaml | indent 8 }}
+      {{- end }}
       containers:
       - args:
         {{- if semverCompare "~5.7" (.Values.pipelines.images.mysql.tag | toString) }}
@@ -58,7 +62,6 @@ spec:
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
-      securityContext: {}
       serviceAccount: mysql
       serviceAccountName: mysql
       terminationGracePeriodSeconds: 30
