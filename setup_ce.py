@@ -65,11 +65,23 @@ WINDOWS_LOOPBACK_SCRIPT = Path(r"C:\persist_loopbacks.bat")
 REQUIRED_COMMANDS = ["git", "helm", "kubectl"]
 
 
-def echo_color(text: str, color: str = typer.colors.GREEN):
-    if color:
-        typer.echo(typer.style(text, fg=color))
+def echo_color(text: str, color: Optional[str] = "auto", err: bool = False) -> None:
+    """
+    Print text with an optional color using Typer.
+    If color='auto', it chooses red if err=True, else green.
+    If color=None, it prints without color.
+
+    :param text: The text to print.
+    :param color: "auto", None, or a Typer color constant (e.g., typer.colors.BLUE).
+    :param err: Whether to print to stderr instead of stdout.
+    """
+    if color == "auto":
+        color = typer.colors.RED if err else typer.colors.GREEN
+
+    if color is None:
+        typer.echo(text, err=err)
     else:
-        typer.echo(text)
+        typer.echo(typer.style(text, fg=color), err=err)
 
 
 def run_command(
@@ -92,7 +104,7 @@ def run_command(
             text=True,
         )
     except subprocess.SubprocessError:
-        echo_color(f"[ERROR] Command failed: {' '.join(cmd)}", color=typer.colors.RED)
+        echo_color(f"[ERROR] Command failed: {' '.join(cmd)}", err=True)
         raise
 
 
@@ -103,9 +115,26 @@ def main(ctx: typer.Context):
     ctx.ensure_object(dict)
 
 
-def check_command_exists(cmd: str):
+def is_process_running(process_name: str) -> bool:
+    """Check if a process is running."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", process_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def check_command_exists(cmd: str) -> bool:
     if shutil.which(cmd) is None:
         echo_color(f"[WARNING] Command '{cmd}' not on PATH.", color=typer.colors.YELLOW)
+        return False
+    else:
+        return True
 
 
 def clear_namespaces(debug: bool):
@@ -182,42 +211,57 @@ def persist_loopbacks_on_windows(debug: bool):
 
 
 def write_hosts(debug: bool):
-    echo_color("Updating hosts file.")
+    echo_color("Checking if hosts file update is needed.")
     sys_str = platform.system().lower()
-    hosts_file = Path(r"C:\Windows\System32\drivers\etc\hosts") if sys_str == "windows" else Path("/etc/hosts")
-    old = []
+    hosts_file = (
+        Path(r"C:\Windows\System32\drivers\etc\hosts")
+        if sys_str == "windows"
+        else Path("/etc/hosts")
+    )
+
+    old_lines = []
     if hosts_file.is_file():
         try:
-            old = hosts_file.read_text(encoding="utf-8").splitlines(keepends=True)
+            old_lines = hosts_file.read_text(encoding="utf-8").splitlines(keepends=True)
         except Exception:
             pass
 
+    # Build the new content
     new_lines = []
-    for line in old:
+    for line in old_lines:
         if not any(h in line for ips in COMPONENT_IPS.values() for h in ips):
             new_lines.append(line)
     for ip, hosts in COMPONENT_IPS.items():
         for h in hosts:
             new_lines.append(f"{ip}\t{h}\n")
 
+    old_str = "".join(old_lines)
+    new_str = "".join(new_lines)
+
+    # Only write if there are changes
+    if old_str == new_str:
+        echo_color("No changes detected in hosts file. Skipping write.")
+        return
+
+    echo_color("Updating hosts file with new content.")
     if sys_str in ("linux", "darwin"):
         tmp_file = Path(tempfile.gettempdir()) / "hosts.tmp"
-        tmp_file.write_text("".join(new_lines), encoding="utf-8")
+        tmp_file.write_text(new_str, encoding="utf-8")
         run_command(["sudo", "-S", "mv", str(tmp_file), str(hosts_file)], debug=debug)
     else:
-        hosts_file.write_text("".join(new_lines), encoding="utf-8")
+        hosts_file.write_text(new_str, encoding="utf-8")
 
 
 def install_telepresence_all_os(debug: bool):
     echo_color("Installing Telepresence binary.")
 
-    if shutil.which("telepresence"):
+    if check_command_exists("telepresence"):
         echo_color("Telepresence is already installed. Skipping.")
         return
 
     sys_str = platform.system().lower()
     if sys_str == "darwin":
-        if not shutil.which("brew"):
+        if not check_command_exists("brew"):
             echo_color("Homebrew not found, cannot install Telepresence automatically.", color=typer.colors.YELLOW)
             return
 
@@ -225,8 +269,8 @@ def install_telepresence_all_os(debug: bool):
         local_formula = "/tmp/telepresence-arm64.rb"
 
         # Download the formula using wget
-        if not shutil.which("wget"):
-            echo_color("wget not found, cannot download the formula.", color=typer.colors.RED)
+        if not check_command_exists("wget"):
+            echo_color("wget not found, cannot download the formula.", err=True)
             return
 
         run_command(["wget", "-O", local_formula, formula_url], debug=debug)
@@ -249,7 +293,7 @@ def install_telepresence_all_os(debug: bool):
         run_command(["sudo", "-S", "mv", str(tmp_path), "/usr/local/bin/telepresence"], debug=debug)
     elif sys_str == "windows":
         # If Telepresence is not installed, try installing via choco
-        if not shutil.which("choco"):
+        if not check_command_exists("choco"):
             run_command(
                 [
                     "powershell.exe",
@@ -265,10 +309,10 @@ def install_telepresence_all_os(debug: bool):
                 ],
                 debug=debug,
             )
-        if shutil.which("choco"):
+        if check_command_exists("choco"):
             run_command(["choco", "install", "telepresence", "--version=2.14.4", "-y"], debug=debug)
         else:
-            echo_color("Chocolatey not available; cannot install Telepresence.", color=typer.colors.RED)
+            echo_color("Chocolatey not available; cannot install Telepresence.", err=True)
 
 
 def setup_telepresence(intercept: bool, install: bool, debug: bool):
@@ -281,20 +325,19 @@ def setup_telepresence(intercept: bool, install: bool, debug: bool):
     run_command(["telepresence", "helm", "install"], debug=debug, raise_on_error=False)
     run_command(["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=120s"], debug=debug)
     run_command(["telepresence", "connect"], debug=debug)
-    run_command(["kubectl", "rollout", "restart", "deployment/mlrun-api-chief", "-n", "mlrun"], debug=debug)
-    run_command(
-        [
-            "kubectl",
-            "wait",
-            "--for=condition=available",
-            "--timeout=300s",
-            "deployment/mlrun-api-chief",
-            "-n",
-            "mlrun",
-        ],
-        debug=debug,
-    )
     if intercept:
+        run_command(
+            [
+                "kubectl",
+                "wait",
+                "--for=condition=available",
+                "--timeout=300s",
+                "deployment/mlrun-api-chief",
+                "-n",
+                "mlrun",
+            ],
+            debug=debug,
+        )
         run_command(
             [
                 "telepresence",
@@ -346,8 +389,36 @@ def configure_metallb(debug: bool):
             run_command(["kubectl", "apply", "-f", tmpf.name], debug=debug)
 
 
+def is_traefik_installed(debug: bool = False) -> bool:
+    """
+    Checks if Traefik is installed on the cluster by looking for Traefik pods in all namespaces.
+    You can customize this logic to best suit your environment.
+    """
+    cmd = ["kubectl", "get", "pods", "-A"]
+    if debug:
+        typer.echo(f"[DEBUG] Checking for Traefik: {' '.join(cmd)}")
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        # If we failed to run kubectl, fallback to saying no
+        if debug:
+            typer.echo("[DEBUG] kubectl get pods -A failed, assuming Traefik is not installed.")
+        return False
+
+    # Simple detection if 'traefik' is found in any pod name
+    return "traefik" in res.stdout.lower()
+
+
 def setup_nginx(debug: bool):
-    echo_color("Setting up NGINX Ingress Controller.")
+    """
+    Installs ingress-nginx only if Traefik is not detected.
+    Otherwise, we assume the user wants to rely on Traefik for ingress.
+    """
+    traefik_found = is_traefik_installed(debug=debug)
+    if traefik_found:
+        typer.echo("Traefik is already installed on this cluster. Skipping ingress-nginx installation.")
+        return
+
+    typer.echo("Setting up NGINX Ingress Controller.")
     run_command(["helm", "repo", "add", "ingress-nginx", "https://kubernetes.github.io/ingress-nginx"], debug=debug)
     run_command(["helm", "repo", "update"], debug=debug)
     res = subprocess.run(["helm", "status", "ingress-nginx", "-n", "ingress-nginx"], capture_output=True, text=True)
@@ -367,6 +438,7 @@ def setup_nginx(debug: bool):
             ],
             debug=debug,
         )
+
 
 
 def add_helm_repositories(debug: bool):
@@ -413,9 +485,9 @@ def setup_registry_secret(docker_user: str, docker_pass: str, docker_server: str
         )
 
 
-def clean_version(version: str) -> str:
+def clean_version(version: str, remove_rc:bool =False) -> str:
     match = re.match(r'^(.*?rc\d+).*', version)
-    if match:
+    if match and not remove_rc:
         return match.group(1)  # Keep up to the rc part
     else:
         return version.split('-')[0]  # Keep only the main version if no rc
@@ -512,7 +584,7 @@ def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch:
     if not mlrun_ver:
         r = requests.get("https://api.github.com/repos/mlrun/mlrun/tags", timeout=30)
         r.raise_for_status()
-        mlrun_ver = clean_version(r.json()[0]["name"].replace("v", ""))
+        mlrun_ver = clean_version(r.json()[0]["name"].replace("v", ""), remove_rc=True)
 
     registry_url = f"{server.rstrip('/')}/{user}"
     run_command(["helm", "dependency", "build"], cwd=charts, debug=debug)
@@ -554,7 +626,7 @@ def patch_workflow_controller_to_9091(debug: bool):
         text=True,
     )
     if s_data.returncode != 0:
-        echo_color("Cannot get workflow-controller-metrics service.", color=typer.colors.RED)
+        echo_color("Cannot get workflow-controller-metrics service.", err=True)
         return
     svc_json = json.loads(s_data.stdout)
     port, tport = svc_json["spec"]["ports"][0]["port"], svc_json["spec"]["ports"][0]["targetPort"]
@@ -582,7 +654,7 @@ def patch_workflow_controller_to_9091(debug: bool):
         text=True,
     )
     if d_data.returncode != 0:
-        echo_color("Cannot get workflow-controller deployment.", color=typer.colors.RED)
+        echo_color("Cannot get workflow-controller deployment.", err=True)
         return
     cport = json.loads(d_data.stdout)["spec"]["template"]["spec"]["containers"][0]["ports"][0]["containerPort"]
     if cport != 9091:
@@ -650,13 +722,32 @@ INGRESS_HOSTS = [
 
 
 def create_ingress(debug: bool):
-    echo_color("Ensuring Ingress resources are created...")
+    typer.echo("Ensuring Ingress resources are created...")
+
+    traefik_found = is_traefik_installed(debug=debug)
+
+    # Build the Ingress resource dynamically.
+    # If Traefik is installed, we might omit 'ingressClassName' or set it to "traefik"
+    # If not, we set it to "nginx"
+    ingress_class = "traefik" if traefik_found else "nginx"
     ingress = {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "Ingress",
-        "metadata": {"name": "mlrun-ce-ingress", "namespace": "mlrun"},
-        "spec": {"ingressClassName": "nginx", "rules": []},
+        "metadata": {
+            "name": "mlrun-ce-ingress",
+            "namespace": "mlrun",
+            "annotations": {},
+        },
+        "spec": {
+            "ingressClassName": ingress_class,
+            "rules": []
+        },
     }
+
+    # (Optional) If you want to omit `ingressClassName` entirely with Traefik:
+    # if traefik_found:
+    #     del ingress["spec"]["ingressClassName"]
+
     for item in INGRESS_HOSTS:
         host_item = {"host": item["host"], "http": {"paths": []}}
         for p in item["paths"]:
@@ -671,9 +762,9 @@ def create_ingress(debug: bool):
 
     proc = subprocess.run(["kubectl", "apply", "-f", "-"], input=yaml.dump(ingress, sort_keys=False), text=True)
     if proc.returncode == 0:
-        echo_color("Ingress ensured.")
+        typer.echo("Ingress ensured.")
     else:
-        echo_color("Failed to create/update Ingress.", color=typer.colors.RED)
+        echo_color("Failed to create/update Ingress.", err=True)
 
 
 def patch_mlrun_env():
