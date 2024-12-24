@@ -438,7 +438,6 @@ def setup_nginx(debug: bool):
         )
 
 
-
 def add_helm_repositories(debug: bool):
     echo_color("Setting up Helm repositories.")
     for name, url in HELM_REPOS.items():
@@ -483,19 +482,55 @@ def setup_registry_secret(docker_user: str, docker_pass: str, docker_server: str
         )
 
 
-def clean_version(version: str, remove_rc:bool =False) -> str:
-    match = re.match(r'^(.*?rc\d+).*', version)
-    if match and not remove_rc:
-        return match.group(1)  # Keep up to the rc part
-    else:
-        return version.split('-')[0]  # Keep only the main version if no rc
+SEMVER_RC_REGEX = re.compile(r'^\d+\.\d+\.\d+(?:-rc\d+)?$')
+
+def clean_version(version_str):
+    match = re.search(r'\d+\.\d+\.\d+(?:-rc\d+)?', version_str)
+    return match.group(0) if match else version_str.strip()
+
+def is_valid_version(version):
+    return bool(SEMVER_RC_REGEX.match(version))
+
+def get_all_tags(url):
+    tags = []
+    page = 1
+    per_page = 100
+    while True:
+        params = {'page': page, 'per_page': per_page}
+        try:
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            page_tags = response.json()
+            if not page_tags:
+                break
+            tags.extend(page_tags)
+            page += 1
+        except requests.RequestException as e:
+            print(f"HTTP error occurred while fetching tags: {e}")
+            break
+    return tags
+
+def get_latest_valid_version(tags_url):
+    latest_version = None
+    tags = get_all_tags(tags_url)
+    for tag in tags:
+        tag_name = tag.get("name", "")
+        cleaned_version = clean_version(tag_name)
+        if is_valid_version(cleaned_version):
+            latest_version = cleaned_version
+            print(f"Valid version found: {latest_version}")
+            break
+        else:
+            print(f"Ignoring invalid version: {cleaned_version}")
+    if not latest_version:
+        raise ValueError("No valid version found with the required criteria.")
+    return latest_version
 
 
 def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: bool):
     if not ce_version:
-        r = requests.get("https://api.github.com/repos/mlrun/ce/tags", timeout=30)
-        r.raise_for_status()
-        ce_version = clean_version(r.json()[0]["name"].replace("mlrun-ce-", ""))
+        ce_version = get_latest_valid_version("https://api.github.com/repos/mlrun/ce/tags")
+        ce_version = ce_version.replace("mlrun-ce-", "")
 
     add_helm_repositories(debug=debug)
 
@@ -580,9 +615,8 @@ def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch:
         return
 
     if not mlrun_ver:
-        r = requests.get("https://api.github.com/repos/mlrun/mlrun/tags", timeout=30)
-        r.raise_for_status()
-        mlrun_ver = clean_version(r.json()[0]["name"].replace("v", ""))
+        mlrun_ver = get_latest_valid_version("https://api.github.com/repos/mlrun/mlrun/tags")
+        mlrun_ver = mlrun_ver.replace("v", "")
 
     registry_url = f"{server.rstrip('/')}/{user}"
     run_command(["helm", "dependency", "build"], cwd=charts, debug=debug)
@@ -614,6 +648,8 @@ def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch:
         cwd=charts,
         debug=debug,
     )
+
+
 def patch_workflow_controller_to_9091(debug: bool):
     echo_color("Ensuring workflow-controller uses port 9091.")
 
