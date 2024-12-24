@@ -226,7 +226,6 @@ def write_hosts(debug: bool):
         except Exception:
             pass
 
-    # Build the new content
     new_lines = []
     for line in old_lines:
         if not any(h in line for ips in COMPONENT_IPS.values() for h in ips):
@@ -238,7 +237,6 @@ def write_hosts(debug: bool):
     old_str = "".join(old_lines)
     new_str = "".join(new_lines)
 
-    # Only write if there are changes
     if old_str == new_str:
         echo_color("No changes detected in hosts file. Skipping write.")
         return
@@ -584,7 +582,7 @@ def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch:
     if not mlrun_ver:
         r = requests.get("https://api.github.com/repos/mlrun/mlrun/tags", timeout=30)
         r.raise_for_status()
-        mlrun_ver = clean_version(r.json()[0]["name"].replace("v", ""), remove_rc=True)
+        mlrun_ver = clean_version(r.json()[0]["name"].replace("v", ""))
 
     registry_url = f"{server.rstrip('/')}/{user}"
     run_command(["helm", "dependency", "build"], cwd=charts, debug=debug)
@@ -616,21 +614,43 @@ def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch:
         cwd=charts,
         debug=debug,
     )
-
-
 def patch_workflow_controller_to_9091(debug: bool):
-    echo_color("Ensuring workflow-controller uses 9091.")
-    s_data = subprocess.run(
+    echo_color("Ensuring workflow-controller uses port 9091.")
+
+    # Patch Service
+    svc_data = subprocess.run(
         ["kubectl", "get", "service", "workflow-controller-metrics", "-n", "mlrun", "-o", "json"],
         capture_output=True,
         text=True,
     )
-    if s_data.returncode != 0:
+    if svc_data.returncode != 0:
         echo_color("Cannot get workflow-controller-metrics service.", err=True)
         return
-    svc_json = json.loads(s_data.stdout)
-    port, tport = svc_json["spec"]["ports"][0]["port"], svc_json["spec"]["ports"][0]["targetPort"]
-    if port != 9091 or tport != 9091:
+
+    svc_json = json.loads(svc_data.stdout)
+    svc_patches = []
+    for idx, port in enumerate(svc_json["spec"]["ports"]):
+        if port.get("name") == "metrics":
+            # Replace port and targetPort
+            svc_patches.append({
+                "op": "replace",
+                "path": f"/spec/ports/{idx}/port",
+                "value": 9091
+            })
+            svc_patches.append({
+                "op": "replace",
+                "path": f"/spec/ports/{idx}/targetPort",
+                "value": 9091
+            })
+            # Optionally rename to ensure uniqueness
+            svc_patches.append({
+                "op": "replace",
+                "path": f"/spec/ports/{idx}/name",
+                "value": f"metrics-{idx}"
+            })
+
+    if svc_patches:
+        patch_payload = json.dumps(svc_patches)
         run_command(
             [
                 "kubectl",
@@ -642,22 +662,48 @@ def patch_workflow_controller_to_9091(debug: bool):
                 "--type",
                 "json",
                 "-p",
-                '[{"op": "replace","path": "/spec/ports/0/port","value": 9091},'
-                '{"op": "replace","path": "/spec/ports/0/targetPort","value": 9091}]',
+                patch_payload,
             ],
             debug=debug,
         )
+    else:
+        echo_color("No 'metrics' ports found in the service to patch.", err=True)
 
-    d_data = subprocess.run(
+    # Patch Deployment
+    dep_data = subprocess.run(
         ["kubectl", "get", "deployment", "workflow-controller", "-n", "mlrun", "-o", "json"],
         capture_output=True,
         text=True,
     )
-    if d_data.returncode != 0:
+    if dep_data.returncode != 0:
         echo_color("Cannot get workflow-controller deployment.", err=True)
         return
-    cport = json.loads(d_data.stdout)["spec"]["template"]["spec"]["containers"][0]["ports"][0]["containerPort"]
-    if cport != 9091:
+
+    dep_json = json.loads(dep_data.stdout)
+    dep_patches = []
+    containers = dep_json["spec"]["template"]["spec"].get("containers", [])
+    if not containers:
+        echo_color("No containers found in the deployment.", err=True)
+        return
+
+    container = containers[0]  # Assuming single container
+    for idx, port in enumerate(container.get("ports", [])):
+        if port.get("name") == "metrics":
+            # Replace containerPort
+            dep_patches.append({
+                "op": "replace",
+                "path": f"/spec/template/spec/containers/0/ports/{idx}/containerPort",
+                "value": 9091
+            })
+            # Optionally rename to ensure uniqueness
+            dep_patches.append({
+                "op": "replace",
+                "path": f"/spec/template/spec/containers/0/ports/{idx}/name",
+                "value": f"metrics-{idx}"
+            })
+
+    if dep_patches:
+        dep_patch_payload = json.dumps(dep_patches)
         run_command(
             [
                 "kubectl",
@@ -669,10 +715,14 @@ def patch_workflow_controller_to_9091(debug: bool):
                 "--type",
                 "json",
                 "-p",
-                '[{"op":"replace","path":"/spec/template/spec/containers/0/ports/0/containerPort","value":9091}]',
+                dep_patch_payload,
             ],
             debug=debug,
         )
+    else:
+        echo_color("No 'metrics' ports found in the deployment to patch.", err=True)
+
+    echo_color("Patching completed.")
 
 
 def expose_workflow_controller(debug: bool):
@@ -726,9 +776,6 @@ def create_ingress(debug: bool):
 
     traefik_found = is_traefik_installed(debug=debug)
 
-    # Build the Ingress resource dynamically.
-    # If Traefik is installed, we might omit 'ingressClassName' or set it to "traefik"
-    # If not, we set it to "nginx"
     ingress_class = "traefik" if traefik_found else "nginx"
     ingress = {
         "apiVersion": "networking.k8s.io/v1",
@@ -743,10 +790,6 @@ def create_ingress(debug: bool):
             "rules": []
         },
     }
-
-    # (Optional) If you want to omit `ingressClassName` entirely with Traefik:
-    # if traefik_found:
-    #     del ingress["spec"]["ingressClassName"]
 
     for item in INGRESS_HOSTS:
         host_item = {"host": item["host"], "http": {"paths": []}}
