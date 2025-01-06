@@ -85,11 +85,11 @@ def echo_color(text: str, color: Optional[str] = "auto", err: bool = False) -> N
 
 
 def run_command(
-        cmd: list[str],
-        raise_on_error: bool = True,
-        cwd: Optional[Path] = None,
-        input_data: Optional[str] = None,
-        debug: bool = False,
+    cmd: list[str],
+    raise_on_error: bool = True,
+    cwd: Optional[Path] = None,
+    input_data: Optional[str] = None,
+    debug: bool = False,
 ):
     if debug:
         echo_color(f"[DEBUG] Running: {' '.join(cmd)}", color=typer.colors.MAGENTA)
@@ -122,7 +122,7 @@ def is_process_running(process_name: str) -> bool:
             ["pgrep", "-f", process_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
         )
         return result.returncode == 0
     except Exception:
@@ -139,20 +139,30 @@ def check_command_exists(cmd: str) -> bool:
 
 def clear_namespaces(debug: bool):
     echo_color("Clearing Kubernetes namespaces.")
-    run_command(["kubectl", "delete", "namespace", "mlrun"], debug=debug, raise_on_error=False)
-    run_command(["kubectl", "delete", "namespace", "ambassador"], debug=debug, raise_on_error=False)
+    run_command(
+        ["kubectl", "delete", "namespace", "mlrun"], debug=debug, raise_on_error=False
+    )
+    run_command(
+        ["kubectl", "delete", "namespace", "ambassador"],
+        debug=debug,
+        raise_on_error=False,
+    )
 
 
 def windows_loopback_script(ips: list[str]):
     lines = ["@echo off"]
     for ip in ips:
-        lines.append(f'netsh interface ip add address "Loopback Pseudo-Interface 1" {ip} 255.255.255.0 1>nul 2>nul')
+        lines.append(
+            f'netsh interface ip add address "Loopback Pseudo-Interface 1" {ip} 255.255.255.0 1>nul 2>nul'
+        )
     lines.append("exit /b 0")
     WINDOWS_LOOPBACK_SCRIPT.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def windows_scheduled_task(debug: bool):
-    run_command(["schtasks", "/delete", "/f", "/tn", WINDOWS_SCHEDULED_TASK_NAME], debug=debug)
+    run_command(
+        ["schtasks", "/delete", "/f", "/tn", WINDOWS_SCHEDULED_TASK_NAME], debug=debug
+    )
     run_command(
         [
             "schtasks",
@@ -198,9 +208,14 @@ def create_virtual_interface(debug: bool):
                 run_command(["sudo", "-S", "ifconfig", "lo0", "alias", ip], debug=debug)
     elif sys_str == "linux":
         for ip in ips:
-            res = subprocess.run(["ip", "addr", "show", "lo"], capture_output=True, text=True)
+            res = subprocess.run(
+                ["ip", "addr", "show", "lo"], capture_output=True, text=True
+            )
             if ip not in res.stdout:
-                run_command(["sudo", "-S", "ip", "address", "add", f"{ip}/32", "dev", "lo"], debug=debug)
+                run_command(
+                    ["sudo", "-S", "ip", "address", "add", f"{ip}/32", "dev", "lo"],
+                    debug=debug,
+                )
 
 
 def persist_loopbacks_on_windows(debug: bool):
@@ -260,7 +275,10 @@ def install_telepresence_all_os(debug: bool):
     sys_str = platform.system().lower()
     if sys_str == "darwin":
         if not check_command_exists("brew"):
-            echo_color("Homebrew not found, cannot install Telepresence automatically.", color=typer.colors.YELLOW)
+            echo_color(
+                "Homebrew not found, cannot install Telepresence automatically.",
+                color=typer.colors.YELLOW,
+            )
             return
 
         formula_url = "https://raw.githubusercontent.com/datawire/homebrew-blackbird/97e0a28d02adb42221ae4160c35a35f3a00f9eed/Formula/telepresence-arm64.rb"
@@ -274,7 +292,9 @@ def install_telepresence_all_os(debug: bool):
         run_command(["wget", "-O", local_formula, formula_url], debug=debug)
 
         # Install the formula using brew
-        run_command(["brew", "install", local_formula], debug=debug, raise_on_error=False)
+        run_command(
+            ["brew", "install", local_formula], debug=debug, raise_on_error=False
+        )
     elif sys_str == "linux":
         tmp_path = Path(tempfile.gettempdir()) / "telepresence"
         run_command(
@@ -288,7 +308,10 @@ def install_telepresence_all_os(debug: bool):
             debug=debug,
         )
         run_command(["chmod", "+x", str(tmp_path)], debug=debug)
-        run_command(["sudo", "-S", "mv", str(tmp_path), "/usr/local/bin/telepresence"], debug=debug)
+        run_command(
+            ["sudo", "-S", "mv", str(tmp_path), "/usr/local/bin/telepresence"],
+            debug=debug,
+        )
     elif sys_str == "windows":
         # If Telepresence is not installed, try installing via choco
         if not check_command_exists("choco"):
@@ -308,9 +331,14 @@ def install_telepresence_all_os(debug: bool):
                 debug=debug,
             )
         if check_command_exists("choco"):
-            run_command(["choco", "install", "telepresence", "--version=2.14.4", "-y"], debug=debug)
+            run_command(
+                ["choco", "install", "telepresence", "--version=2.14.4", "-y"],
+                debug=debug,
+            )
         else:
-            echo_color("Chocolatey not available; cannot install Telepresence.", err=True)
+            echo_color(
+                "Chocolatey not available; cannot install Telepresence.", err=True
+            )
 
 
 def setup_telepresence(intercept: bool, install: bool, debug: bool):
@@ -318,10 +346,17 @@ def setup_telepresence(intercept: bool, install: bool, debug: bool):
         install_telepresence_all_os(debug)
     echo_color("Installing Telepresence in Helm.")
 
-    run_command(["sudo", "-S", "pkill", "-f", "telepresence"], debug=debug, raise_on_error=False)
-    run_command(["sudo", "-S", "telepresence", "quit", "-s"], debug=debug, raise_on_error=False)
+    run_command(
+        ["sudo", "-S", "pkill", "-f", "telepresence"], debug=debug, raise_on_error=False
+    )
+    run_command(
+        ["sudo", "-S", "telepresence", "quit", "-s"], debug=debug, raise_on_error=False
+    )
     run_command(["telepresence", "helm", "install"], debug=debug, raise_on_error=False)
-    run_command(["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=120s"], debug=debug)
+    run_command(
+        ["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=120s"],
+        debug=debug,
+    )
     run_command(["telepresence", "connect"], debug=debug)
     if intercept:
         run_command(
@@ -378,10 +413,15 @@ def configure_metallb(debug: bool):
         ],
         debug=debug,
     )
-    res = subprocess.run(["kubectl", "get", "configmap", "config", "-n", "metallb-system"], capture_output=True,
-                         text=True)
+    res = subprocess.run(
+        ["kubectl", "get", "configmap", "config", "-n", "metallb-system"],
+        capture_output=True,
+        text=True,
+    )
     if "NotFound" in res.stderr:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".yaml", mode="w", encoding="utf-8") as tmpf:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".yaml", mode="w", encoding="utf-8"
+        ) as tmpf:
             tmpf.write(METALLB_CONFIG_YAML)
             tmpf.flush()
             run_command(["kubectl", "apply", "-f", tmpf.name], debug=debug)
@@ -399,7 +439,9 @@ def is_traefik_installed(debug: bool = False) -> bool:
     if res.returncode != 0:
         # If we failed to run kubectl, fallback to saying no
         if debug:
-            typer.echo("[DEBUG] kubectl get pods -A failed, assuming Traefik is not installed.")
+            typer.echo(
+                "[DEBUG] kubectl get pods -A failed, assuming Traefik is not installed."
+            )
         return False
 
     # Simple detection if 'traefik' is found in any pod name
@@ -413,13 +455,28 @@ def setup_nginx(debug: bool):
     """
     traefik_found = is_traefik_installed(debug=debug)
     if traefik_found:
-        typer.echo("Traefik is already installed on this cluster. Skipping ingress-nginx installation.")
+        typer.echo(
+            "Traefik is already installed on this cluster. Skipping ingress-nginx installation."
+        )
         return
 
     typer.echo("Setting up NGINX Ingress Controller.")
-    run_command(["helm", "repo", "add", "ingress-nginx", "https://kubernetes.github.io/ingress-nginx"], debug=debug)
+    run_command(
+        [
+            "helm",
+            "repo",
+            "add",
+            "ingress-nginx",
+            "https://kubernetes.github.io/ingress-nginx",
+        ],
+        debug=debug,
+    )
     run_command(["helm", "repo", "update"], debug=debug)
-    res = subprocess.run(["helm", "status", "ingress-nginx", "-n", "ingress-nginx"], capture_output=True, text=True)
+    res = subprocess.run(
+        ["helm", "status", "ingress-nginx", "-n", "ingress-nginx"],
+        capture_output=True,
+        text=True,
+    )
     if "not found" in (res.stdout + res.stderr).lower():
         run_command(
             [
@@ -445,7 +502,9 @@ def add_helm_repositories(debug: bool):
     run_command(["helm", "repo", "update"], debug=debug)
 
 
-def setup_registry_secret(docker_user: str, docker_pass: str, docker_server: str, debug: bool):
+def setup_registry_secret(
+    docker_user: str, docker_pass: str, docker_server: str, debug: bool
+):
     echo_color("Setting up Docker registry secret.")
     ns_cmd = subprocess.run(
         ["kubectl", "create", "namespace", "mlrun", "--dry-run=client", "-o", "yaml"],
@@ -482,21 +541,24 @@ def setup_registry_secret(docker_user: str, docker_pass: str, docker_server: str
         )
 
 
-SEMVER_RC_REGEX = re.compile(r'^\d+\.\d+\.\d+(?:-rc\d+)?$')
+SEMVER_RC_REGEX = re.compile(r"^\d+\.\d+\.\d+(?:-rc\d+)?$")
+
 
 def clean_version(version_str):
-    match = re.search(r'\d+\.\d+\.\d+(?:-rc\d+)?', version_str)
+    match = re.search(r"\d+\.\d+\.\d+(?:-rc\d+)?", version_str)
     return match.group(0) if match else version_str.strip()
+
 
 def is_valid_version(version):
     return bool(SEMVER_RC_REGEX.match(version))
+
 
 def get_all_tags(url):
     tags = []
     page = 1
     per_page = 100
     while True:
-        params = {'page': page, 'per_page': per_page}
+        params = {"page": page, "per_page": per_page}
         try:
             response = requests.get(url, params=params, timeout=30)
             response.raise_for_status()
@@ -509,6 +571,7 @@ def get_all_tags(url):
             print(f"HTTP error occurred while fetching tags: {e}")
             break
     return tags
+
 
 def get_latest_valid_version(tags_url):
     latest_version = None
@@ -529,7 +592,9 @@ def get_latest_valid_version(tags_url):
 
 def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: bool):
     if not ce_version:
-        ce_version = get_latest_valid_version("https://api.github.com/repos/mlrun/ce/tags")
+        ce_version = get_latest_valid_version(
+            "https://api.github.com/repos/mlrun/ce/tags"
+        )
         ce_version = ce_version.replace("mlrun-ce-", "")
 
     add_helm_repositories(debug=debug)
@@ -598,10 +663,15 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
     if use_kfp_v2:
         install_args += ["--values", "charts/mlrun-ce/kfp2.yaml"]
 
-    run_command(["helm", "upgrade", "--install", "mlrun"] + install_args + ["--debug"], debug=debug)
+    run_command(
+        ["helm", "upgrade", "--install", "mlrun"] + install_args + ["--debug"],
+        debug=debug,
+    )
 
 
-def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch: str, debug: bool):
+def upgrade_images(
+    mlrun_ver: str, ce_dir: Path, user: str, server: str, branch: str, debug: bool
+):
     if not ce_dir.is_dir():
         run_command(["git", "clone", REPO_URL, str(ce_dir)], debug=debug)
     else:
@@ -611,11 +681,16 @@ def upgrade_images(mlrun_ver: str, ce_dir: Path, user: str, server: str, branch:
 
     charts = ce_dir / "charts" / "mlrun-ce"
     if not charts.is_dir():
-        echo_color(f"{charts} not found. Skipping local image upgrade.", color=typer.colors.YELLOW)
+        echo_color(
+            f"{charts} not found. Skipping local image upgrade.",
+            color=typer.colors.YELLOW,
+        )
         return
 
     if not mlrun_ver:
-        mlrun_ver = get_latest_valid_version("https://api.github.com/repos/mlrun/mlrun/tags")
+        mlrun_ver = get_latest_valid_version(
+            "https://api.github.com/repos/mlrun/mlrun/tags"
+        )
         mlrun_ver = mlrun_ver.replace("v", "")
 
     registry_url = f"{server.rstrip('/')}/{user}"
@@ -655,7 +730,16 @@ def patch_workflow_controller_to_9091(debug: bool):
 
     # Patch Service
     svc_data = subprocess.run(
-        ["kubectl", "get", "service", "workflow-controller-metrics", "-n", "mlrun", "-o", "json"],
+        [
+            "kubectl",
+            "get",
+            "service",
+            "workflow-controller-metrics",
+            "-n",
+            "mlrun",
+            "-o",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )
@@ -668,22 +752,24 @@ def patch_workflow_controller_to_9091(debug: bool):
     for idx, port in enumerate(svc_json["spec"]["ports"]):
         if port.get("name") == "metrics":
             # Replace port and targetPort
-            svc_patches.append({
-                "op": "replace",
-                "path": f"/spec/ports/{idx}/port",
-                "value": 9091
-            })
-            svc_patches.append({
-                "op": "replace",
-                "path": f"/spec/ports/{idx}/targetPort",
-                "value": 9091
-            })
+            svc_patches.append(
+                {"op": "replace", "path": f"/spec/ports/{idx}/port", "value": 9091}
+            )
+            svc_patches.append(
+                {
+                    "op": "replace",
+                    "path": f"/spec/ports/{idx}/targetPort",
+                    "value": 9091,
+                }
+            )
             # Optionally rename to ensure uniqueness
-            svc_patches.append({
-                "op": "replace",
-                "path": f"/spec/ports/{idx}/name",
-                "value": f"metrics-{idx}"
-            })
+            svc_patches.append(
+                {
+                    "op": "replace",
+                    "path": f"/spec/ports/{idx}/name",
+                    "value": f"metrics-{idx}",
+                }
+            )
 
     if svc_patches:
         patch_payload = json.dumps(svc_patches)
@@ -707,7 +793,16 @@ def patch_workflow_controller_to_9091(debug: bool):
 
     # Patch Deployment
     dep_data = subprocess.run(
-        ["kubectl", "get", "deployment", "workflow-controller", "-n", "mlrun", "-o", "json"],
+        [
+            "kubectl",
+            "get",
+            "deployment",
+            "workflow-controller",
+            "-n",
+            "mlrun",
+            "-o",
+            "json",
+        ],
         capture_output=True,
         text=True,
     )
@@ -726,17 +821,21 @@ def patch_workflow_controller_to_9091(debug: bool):
     for idx, port in enumerate(container.get("ports", [])):
         if port.get("name") == "metrics":
             # Replace containerPort
-            dep_patches.append({
-                "op": "replace",
-                "path": f"/spec/template/spec/containers/0/ports/{idx}/containerPort",
-                "value": 9091
-            })
+            dep_patches.append(
+                {
+                    "op": "replace",
+                    "path": f"/spec/template/spec/containers/0/ports/{idx}/containerPort",
+                    "value": 9091,
+                }
+            )
             # Optionally rename to ensure uniqueness
-            dep_patches.append({
-                "op": "replace",
-                "path": f"/spec/template/spec/containers/0/ports/{idx}/name",
-                "value": f"metrics-{idx}"
-            })
+            dep_patches.append(
+                {
+                    "op": "replace",
+                    "path": f"/spec/template/spec/containers/0/ports/{idx}/name",
+                    "value": f"metrics-{idx}",
+                }
+            )
 
     if dep_patches:
         dep_patch_payload = json.dumps(dep_patches)
@@ -783,16 +882,42 @@ def expose_workflow_controller(debug: bool):
 
 
 INGRESS_HOSTS = [
-    {"host": "mlrun.k8s.internal", "paths": [{"path": "/", "serviceName": "mlrun-ui", "servicePort": 80}]},
-    {"host": "mlrun-api.k8s.internal", "paths": [{"path": "/", "serviceName": "mlrun-api", "servicePort": 8080}]},
-    {"host": "mlrun-api-chief.k8s.internal",
-     "paths": [{"path": "/", "serviceName": "mlrun-api-chief", "servicePort": 8080}]},
-    {"host": "nuclio.k8s.internal", "paths": [{"path": "/", "serviceName": "nuclio-dashboard", "servicePort": 8070}]},
-    {"host": "nuclio-dashboard.k8s.internal",
-     "paths": [{"path": "/", "serviceName": "nuclio-dashboard", "servicePort": 8070}]},
-    {"host": "jupyter.k8s.internal", "paths": [{"path": "/", "serviceName": "mlrun-jupyter", "servicePort": 8888}]},
-    {"host": "minio.k8s.internal", "paths": [{"path": "/", "serviceName": "minio-console", "servicePort": 9001}]},
-    {"host": "grafana.k8s.internal", "paths": [{"path": "/", "serviceName": "grafana", "servicePort": 80}]},
+    {
+        "host": "mlrun.k8s.internal",
+        "paths": [{"path": "/", "serviceName": "mlrun-ui", "servicePort": 80}],
+    },
+    {
+        "host": "mlrun-api.k8s.internal",
+        "paths": [{"path": "/", "serviceName": "mlrun-api", "servicePort": 8080}],
+    },
+    {
+        "host": "mlrun-api-chief.k8s.internal",
+        "paths": [{"path": "/", "serviceName": "mlrun-api-chief", "servicePort": 8080}],
+    },
+    {
+        "host": "nuclio.k8s.internal",
+        "paths": [
+            {"path": "/", "serviceName": "nuclio-dashboard", "servicePort": 8070}
+        ],
+    },
+    {
+        "host": "nuclio-dashboard.k8s.internal",
+        "paths": [
+            {"path": "/", "serviceName": "nuclio-dashboard", "servicePort": 8070}
+        ],
+    },
+    {
+        "host": "jupyter.k8s.internal",
+        "paths": [{"path": "/", "serviceName": "mlrun-jupyter", "servicePort": 8888}],
+    },
+    {
+        "host": "minio.k8s.internal",
+        "paths": [{"path": "/", "serviceName": "minio-console", "servicePort": 9001}],
+    },
+    {
+        "host": "grafana.k8s.internal",
+        "paths": [{"path": "/", "serviceName": "grafana", "servicePort": 80}],
+    },
     {
         "host": "kfp.k8s.internal",
         "paths": [
@@ -800,10 +925,22 @@ INGRESS_HOSTS = [
             {"path": "/apis/", "serviceName": "ml-pipeline", "servicePort": 8888},
         ],
     },
-    {"host": "metadata-envoy.k8s.internal",
-     "paths": [{"path": "/", "serviceName": "metadata-envoy-service", "servicePort": 9090}]},
-    {"host": "workflow-metrics.k8s.internal",
-     "paths": [{"path": "/", "serviceName": "workflow-controller-metrics", "servicePort": 9091}]},
+    {
+        "host": "metadata-envoy.k8s.internal",
+        "paths": [
+            {"path": "/", "serviceName": "metadata-envoy-service", "servicePort": 9090}
+        ],
+    },
+    {
+        "host": "workflow-metrics.k8s.internal",
+        "paths": [
+            {
+                "path": "/",
+                "serviceName": "workflow-controller-metrics",
+                "servicePort": 9091,
+            }
+        ],
+    },
 ]
 
 
@@ -821,10 +958,7 @@ def create_ingress(debug: bool):
             "namespace": "mlrun",
             "annotations": {},
         },
-        "spec": {
-            "ingressClassName": ingress_class,
-            "rules": []
-        },
+        "spec": {"ingressClassName": ingress_class, "rules": []},
     }
 
     for item in INGRESS_HOSTS:
@@ -834,12 +968,21 @@ def create_ingress(debug: bool):
                 {
                     "path": p["path"],
                     "pathType": "Prefix",
-                    "backend": {"service": {"name": p["serviceName"], "port": {"number": p["servicePort"]}}},
+                    "backend": {
+                        "service": {
+                            "name": p["serviceName"],
+                            "port": {"number": p["servicePort"]},
+                        }
+                    },
                 }
             )
         ingress["spec"]["rules"].append(host_item)
 
-    proc = subprocess.run(["kubectl", "apply", "-f", "-"], input=yaml.dump(ingress, sort_keys=False), text=True)
+    proc = subprocess.run(
+        ["kubectl", "apply", "-f", "-"],
+        input=yaml.dump(ingress, sort_keys=False),
+        text=True,
+    )
     if proc.returncode == 0:
         typer.echo("Ingress ensured.")
     else:
@@ -865,18 +1008,18 @@ def patch_mlrun_env():
 
 
 def install_ce_on_docker(
-        user: str,
-        passwd: str,
-        server: str,
-        ce_dir: Path,
-        use_kfp_v2: bool,
-        clear_ns: bool,
-        intercept: bool,
-        install_tel: bool,
-        ce_ver: str,
-        mlrun_ver: str,
-        branch: str,
-        debug: bool,
+    user: str,
+    passwd: str,
+    server: str,
+    ce_dir: Path,
+    use_kfp_v2: bool,
+    clear_ns: bool,
+    intercept: bool,
+    install_tel: bool,
+    ce_ver: str,
+    mlrun_ver: str,
+    branch: str,
+    debug: bool,
 ):
     for c in REQUIRED_COMMANDS:
         check_command_exists(c)
@@ -902,19 +1045,21 @@ def install_ce_on_docker(
 
 @app.command()
 def install(
-        ctx: typer.Context,
-        docker_user: str = typer.Option(...),
-        docker_password: str = typer.Option(...),
-        docker_server: str = typer.Option("https://artifactory.iguazeng.com:10557", "--docker-server"),
-        ce_folder: Path = typer.Option(Path.home() / "mlrun-ce", "--ce-folder"),
-        use_kfp_v2: bool = typer.Option(False, "--use-kfp-v2"),
-        clear_k8s_namespaces: bool = typer.Option(False, "--clear-namespaces"),
-        intercept: bool = typer.Option(False, "--intercept"),
-        install_tel: bool = typer.Option(False, "--install-telepresence"),
-        ce_version: str = typer.Option("", "--ce-version"),
-        mlrun_version: str = typer.Option("", "--mlrun-version"),
-        branch: str = typer.Option("", "--branch"),
-        debug: bool = typer.Option("", "--debug"),
+    ctx: typer.Context,
+    docker_user: str = typer.Option(...),
+    docker_password: str = typer.Option(...),
+    docker_server: str = typer.Option(
+        "https://artifactory.iguazeng.com:10557", "--docker-server"
+    ),
+    ce_folder: Path = typer.Option(Path.home() / "mlrun-ce", "--ce-folder"),
+    use_kfp_v2: bool = typer.Option(False, "--use-kfp-v2"),
+    clear_k8s_namespaces: bool = typer.Option(False, "--clear-namespaces"),
+    intercept: bool = typer.Option(False, "--intercept"),
+    install_tel: bool = typer.Option(False, "--install-telepresence"),
+    ce_version: str = typer.Option("", "--ce-version"),
+    mlrun_version: str = typer.Option("", "--mlrun-version"),
+    branch: str = typer.Option("", "--branch"),
+    debug: bool = typer.Option("", "--debug"),
 ):
     install_ce_on_docker(
         docker_user,
@@ -933,15 +1078,19 @@ def install(
 
 
 @app.command()
-def intercept_only(ctx: typer.Context, install_tel: bool = typer.Option(False, "--install-telepresence"),
-                   debug: bool = typer.Option("", "--debug"),
-
-                   ):
+def intercept_only(
+    ctx: typer.Context,
+    install_tel: bool = typer.Option(False, "--install-telepresence"),
+    debug: bool = typer.Option("", "--debug"),
+):
     setup_telepresence(intercept=True, install=install_tel, debug=debug)
 
 
 @app.command()
-def unintercept(ctx: typer.Context, debug: bool = typer.Option("", "--debug"), ):
+def unintercept(
+    ctx: typer.Context,
+    debug: bool = typer.Option("", "--debug"),
+):
     run_command(["telepresence", "leave", "mlrun-api-chief"], debug=debug)
     run_command(["telepresence", "disconnect"], debug=debug)
     echo_color("Telepresence intercept removed and disconnected.")
