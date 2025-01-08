@@ -1046,20 +1046,63 @@ def install_ce_on_docker(
 @app.command()
 def install(
     ctx: typer.Context,
-    docker_user: str = typer.Option(...),
-    docker_password: str = typer.Option(...),
-    docker_server: str = typer.Option(
-        "https://artifactory.iguazeng.com:10557", "--docker-server"
+    docker_user: str = typer.Option(
+        ...,
+        help="Docker username for pulling/pushing images."
     ),
-    ce_folder: Path = typer.Option(Path.home() / "mlrun-ce", "--ce-folder"),
-    use_kfp_v2: bool = typer.Option(False, "--use-kfp-v2"),
-    clear_k8s_namespaces: bool = typer.Option(False, "--clear-namespaces"),
-    intercept: bool = typer.Option(False, "--intercept"),
-    install_tel: bool = typer.Option(False, "--install-telepresence"),
-    ce_version: str = typer.Option("", "--ce-version"),
-    mlrun_version: str = typer.Option("", "--mlrun-version"),
-    branch: str = typer.Option("", "--branch"),
-    debug: bool = typer.Option("", "--debug"),
+    docker_password: str = typer.Option(
+        ...,
+        help="Password or token for the specified Docker user."
+    ),
+    docker_server: str = typer.Option(
+        ...,
+        help="Docker registry server (e.g., 'docker.io' or a private registry)."
+    ),
+    ce_folder: Path = typer.Option(
+        Path.home() / "mlrun-ce",
+        "--ce-folder",
+        help="Folder in which to clone and store the MLRun CE source."
+    ),
+    use_kfp_v2: bool = typer.Option(
+        False,
+        "--use-kfp-v2",
+        help="Enable Kubeflow Pipelines V2 integration."
+    ),
+    clear_k8s_namespaces: bool = typer.Option(
+        False,
+        "--clear-namespaces",
+        help="Remove existing MLRun-related Kubernetes namespaces before install."
+    ),
+    intercept: bool = typer.Option(
+        False,
+        "--intercept",
+        help="Intercept the MLRun API Chief deployment using Telepresence."
+    ),
+    install_tel: bool = typer.Option(
+        False,
+        "--install-telepresence",
+        help="Install Telepresence if not found on the system."
+    ),
+    ce_version: str = typer.Option(
+        "",
+        "--ce-version",
+        help="MLRun CE chart version to install. If empty, fetches the latest valid version."
+    ),
+    mlrun_version: str = typer.Option(
+        "",
+        "--mlrun-version",
+        help="MLRun version (image tag) to use. If empty, fetches the latest valid version."
+    ),
+    branch: str = typer.Option(
+        "",
+        "--branch",
+        help="Git branch name to check out when upgrading images from the CE repo."
+    ),
+    debug: bool = typer.Option(
+        "",
+        "--debug",
+        help="Enable debug mode for more verbose log output."
+    ),
 ):
     install_ce_on_docker(
         docker_user,
@@ -1076,21 +1119,37 @@ def install(
         debug,
     )
 
-
 @app.command()
 def intercept_only(
     ctx: typer.Context,
-    install_tel: bool = typer.Option(False, "--install-telepresence"),
-    debug: bool = typer.Option("", "--debug"),
+    install_tel: bool = typer.Option(
+        False,
+        "--install-telepresence",
+        help="Install Telepresence if not installed."
+    ),
+    debug: bool = typer.Option(
+        "",
+        "--debug",
+        help="Enable debug mode for more verbose log output."
+    ),
 ):
+    """
+    Only intercept the MLRun API Chief deployment (without re-installing everything).
+    """
     setup_telepresence(intercept=True, install=install_tel, debug=debug)
-
 
 @app.command()
 def unintercept(
     ctx: typer.Context,
-    debug: bool = typer.Option("", "--debug"),
+    debug: bool = typer.Option(
+        "",
+        "--debug",
+        help="Enable debug mode for more verbose log output."
+    ),
 ):
+    """
+    Disconnect Telepresence and leave the MLRun API Chief intercept.
+    """
     run_command(["telepresence", "leave", "mlrun-api-chief"], debug=debug)
     run_command(["telepresence", "disconnect"], debug=debug)
     echo_color("Telepresence intercept removed and disconnected.")
