@@ -344,21 +344,22 @@ def install_telepresence_all_os(debug: bool):
 def setup_telepresence(intercept: bool, install: bool, debug: bool):
     if install:
         install_telepresence_all_os(debug)
-    echo_color("Installing Telepresence in Helm.")
 
-    run_command(
-        ["sudo", "-S", "pkill", "-f", "telepresence"], debug=debug, raise_on_error=False
-    )
-    run_command(
-        ["sudo", "-S", "telepresence", "quit", "-s"], debug=debug, raise_on_error=False
-    )
-    run_command(["telepresence", "helm", "install"], debug=debug, raise_on_error=False)
-    run_command(
-        ["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=120s"],
-        debug=debug,
-    )
-    run_command(["telepresence", "connect"], debug=debug)
     if intercept:
+        echo_color("Installing Telepresence in Helm.")
+
+        run_command(
+            ["sudo", "-S", "pkill", "-f", "telepresence"], debug=debug, raise_on_error=False
+        )
+        run_command(
+            ["sudo", "-S", "telepresence", "quit", "-s"], debug=debug, raise_on_error=False
+        )
+        run_command(["telepresence", "helm", "install"], debug=debug, raise_on_error=False)
+        run_command(
+            ["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=120s"],
+            debug=debug,
+        )
+        run_command(["telepresence", "connect"], debug=debug)
         run_command(
             [
                 "kubectl",
@@ -670,7 +671,7 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
 
 
 def upgrade_images(
-    mlrun_ver: str, ce_dir: Path, user: str, server: str, branch: str, debug: bool
+    mlrun_ver: str, nuclio_ver: str, ce_dir: Path, user: str, server: str, branch: str, arch: str, debug: bool
 ):
     if not ce_dir.is_dir():
         run_command(["git", "clone", REPO_URL, str(ce_dir)], debug=debug)
@@ -693,8 +694,15 @@ def upgrade_images(
         )
         mlrun_ver = mlrun_ver.replace("v", "")
 
+    if not nuclio_ver:
+        nuclio_ver = get_latest_valid_version(
+            "https://api.github.com/repos/nuclio/nuclio/tags"
+        )
+        nuclio_ver = nuclio_ver.replace("v", "")
+
     registry_url = f"{server.rstrip('/')}/{user}"
     run_command(["helm", "dependency", "build"], cwd=charts, debug=debug)
+
     run_command(
         [
             "helm",
@@ -715,9 +723,9 @@ def upgrade_images(
             "--set",
             f"jupyterNotebook.image.tag={mlrun_ver}",
             "--set",
-            "nuclio.controller.image.tag=unstable-arm64",
+            f"nuclio.controller.image.tag={nuclio_ver}-{arch}",
             "--set",
-            "nuclio.dashboard.image.tag=unstable-arm64",
+            f"nuclio.dashboard.image.tag={nuclio_ver}-{arch}",
             "--debug",
         ],
         cwd=charts,
@@ -1018,7 +1026,9 @@ def install_ce_on_docker(
     install_tel: bool,
     ce_ver: str,
     mlrun_ver: str,
+    nuclio_ver: str,
     branch: str,
+    arch: str,
     debug: bool,
 ):
     for c in REQUIRED_COMMANDS:
@@ -1034,7 +1044,7 @@ def install_ce_on_docker(
     setup_registry_secret(user, passwd, server, debug)
     write_hosts(debug)
     setup_ce(use_kfp_v2, user, server, ce_ver, debug)
-    upgrade_images(mlrun_ver, ce_dir, user, server, branch, debug)
+    upgrade_images(mlrun_ver, nuclio_ver, ce_dir, user, server, branch, arch, debug)
     patch_workflow_controller_to_9091(debug)
     expose_workflow_controller(debug)
     create_ingress(debug)
@@ -1093,6 +1103,11 @@ def install(
         "--mlrun-version",
         help="MLRun version (image tag) to use. If empty, fetches the latest valid version."
     ),
+    nuclio_version: str = typer.Option(
+        "",
+        "--nuclio-version",
+        help="Nuclio version (image tag) to use. If empty, fetches the latest valid version."
+    ),
     branch: str = typer.Option(
         "",
         "--branch",
@@ -1102,6 +1117,11 @@ def install(
         "",
         "--debug",
         help="Enable debug mode for more verbose log output."
+    ),
+    arch: str = typer.Option(
+        platform.machine(),
+        "--arch",
+        help="Processor arch to use."
     ),
 ):
     install_ce_on_docker(
@@ -1115,7 +1135,9 @@ def install(
         install_tel,
         ce_version,
         mlrun_version,
+        nuclio_version,
         branch,
+        arch,
         debug,
     )
 
