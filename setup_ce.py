@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json
+import os
 import platform
 import re
 import shutil
@@ -558,10 +558,12 @@ def get_all_tags(url):
     tags = []
     page = 1
     per_page = 100
+    token = os.environ.get("GITHUB_TOKEN", "")
+    headers = {"Authorization": f"token {token}"}
     while True:
         params = {"page": page, "per_page": per_page}
         try:
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, timeout=30, headers=headers)
             response.raise_for_status()
             page_tags = response.json()
             if not page_tags:
@@ -657,9 +659,7 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
         "--values",
         "charts/mlrun-ce/non_admin_cluster_ip_installation_values.yaml",
         "--set",
-        "argoWorkflows.controller.metricsConfig.enabled=true",
-        "--set",
-        "argoWorkflows.controller.metricsConfig.port=9090",
+        "argoWorkflows.controller.metricsConfig.enabled=false",
     ]
     if use_kfp_v2:
         install_args += ["--values", "charts/mlrun-ce/kfp2.yaml"]
@@ -729,162 +729,6 @@ def upgrade_images(
             "--debug",
         ],
         cwd=charts,
-        debug=debug,
-    )
-
-
-def patch_workflow_controller_to_9091(debug: bool):
-    echo_color("Ensuring workflow-controller uses port 9091.")
-
-    # Patch Service
-    svc_data = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "service",
-            "workflow-controller-metrics",
-            "-n",
-            "mlrun",
-            "-o",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if svc_data.returncode != 0:
-        echo_color("Cannot get workflow-controller-metrics service.", err=True)
-        return
-
-    svc_json = json.loads(svc_data.stdout)
-    svc_patches = []
-    for idx, port in enumerate(svc_json["spec"]["ports"]):
-        if port.get("name") == "metrics":
-            # Replace port and targetPort
-            svc_patches.append(
-                {"op": "replace", "path": f"/spec/ports/{idx}/port", "value": 9091}
-            )
-            svc_patches.append(
-                {
-                    "op": "replace",
-                    "path": f"/spec/ports/{idx}/targetPort",
-                    "value": 9091,
-                }
-            )
-            # Optionally rename to ensure uniqueness
-            svc_patches.append(
-                {
-                    "op": "replace",
-                    "path": f"/spec/ports/{idx}/name",
-                    "value": f"metrics-{idx}",
-                }
-            )
-
-    if svc_patches:
-        patch_payload = json.dumps(svc_patches)
-        run_command(
-            [
-                "kubectl",
-                "patch",
-                "service",
-                "workflow-controller-metrics",
-                "-n",
-                "mlrun",
-                "--type",
-                "json",
-                "-p",
-                patch_payload,
-            ],
-            debug=debug,
-        )
-    else:
-        echo_color("No 'metrics' ports found in the service to patch.", err=True)
-
-    # Patch Deployment
-    dep_data = subprocess.run(
-        [
-            "kubectl",
-            "get",
-            "deployment",
-            "workflow-controller",
-            "-n",
-            "mlrun",
-            "-o",
-            "json",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if dep_data.returncode != 0:
-        echo_color("Cannot get workflow-controller deployment.", err=True)
-        return
-
-    dep_json = json.loads(dep_data.stdout)
-    dep_patches = []
-    containers = dep_json["spec"]["template"]["spec"].get("containers", [])
-    if not containers:
-        echo_color("No containers found in the deployment.", err=True)
-        return
-
-    container = containers[0]  # Assuming single container
-    for idx, port in enumerate(container.get("ports", [])):
-        if port.get("name") == "metrics":
-            # Replace containerPort
-            dep_patches.append(
-                {
-                    "op": "replace",
-                    "path": f"/spec/template/spec/containers/0/ports/{idx}/containerPort",
-                    "value": 9091,
-                }
-            )
-            # Optionally rename to ensure uniqueness
-            dep_patches.append(
-                {
-                    "op": "replace",
-                    "path": f"/spec/template/spec/containers/0/ports/{idx}/name",
-                    "value": f"metrics-{idx}",
-                }
-            )
-
-    if dep_patches:
-        dep_patch_payload = json.dumps(dep_patches)
-        run_command(
-            [
-                "kubectl",
-                "patch",
-                "deployment",
-                "workflow-controller",
-                "-n",
-                "mlrun",
-                "--type",
-                "json",
-                "-p",
-                dep_patch_payload,
-            ],
-            debug=debug,
-        )
-    else:
-        echo_color("No 'metrics' ports found in the deployment to patch.", err=True)
-
-    echo_color("Patching completed.")
-
-
-def expose_workflow_controller(debug: bool):
-    echo_color("Patching workflow-controller with hostNetwork, metrics-port=9091.")
-    run_command(
-        [
-            "kubectl",
-            "patch",
-            "deployment",
-            "workflow-controller",
-            "-n",
-            "mlrun",
-            "--type",
-            "json",
-            "-p",
-            '[{"op":"add","path":"/spec/template/spec/hostNetwork","value":true},'
-            '{"op":"replace","path":"/spec/template/spec/containers/0/args","value":'
-            '["--configmap","workflow-controller-configmap","--executor-image","argoproj/argoexec:v3.4.6","--metrics-port=9091"]}]',
-        ],
         debug=debug,
     )
 
@@ -1045,8 +889,6 @@ def install_ce_on_docker(
     write_hosts(debug)
     setup_ce(use_kfp_v2, user, server, ce_ver, debug)
     upgrade_images(mlrun_ver, nuclio_ver, ce_dir, user, server, branch, arch, debug)
-    patch_workflow_controller_to_9091(debug)
-    expose_workflow_controller(debug)
     create_ingress(debug)
     setup_telepresence(intercept, install_tel, debug)
     patch_mlrun_env()
