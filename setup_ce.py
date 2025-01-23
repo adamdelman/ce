@@ -85,11 +85,11 @@ def echo_color(text: str, color: Optional[str] = "auto", err: bool = False) -> N
 
 
 def run_command(
-    cmd: list[str],
-    raise_on_error: bool = True,
-    cwd: Optional[Path] = None,
-    input_data: Optional[str] = None,
-    debug: bool = False,
+        cmd: list[str],
+        raise_on_error: bool = True,
+        cwd: Optional[Path] = None,
+        input_data: Optional[str] = None,
+        debug: bool = False,
 ):
     if debug:
         echo_color(f"[DEBUG] Running: {' '.join(cmd)}", color=typer.colors.MAGENTA)
@@ -137,10 +137,10 @@ def check_command_exists(cmd: str) -> bool:
         return True
 
 
-def clear_namespaces(debug: bool):
+def clear_namespaces(namespace: str, debug: bool):
     echo_color("Clearing Kubernetes namespaces.")
     run_command(
-        ["kubectl", "delete", "namespace", "mlrun"], debug=debug, raise_on_error=False
+        ["kubectl", "delete", "namespace", namespace], debug=debug, raise_on_error=False
     )
     run_command(
         ["kubectl", "delete", "namespace", "ambassador"],
@@ -341,8 +341,8 @@ def install_telepresence_all_os(debug: bool):
             )
 
 
-def setup_telepresence(intercept: bool, install: bool, debug: bool):
-    if install:
+def setup_telepresence(intercept: bool, install_telepresence: bool, namespace: str, debug: bool):
+    if install_telepresence:
         install_telepresence_all_os(debug)
 
     if intercept:
@@ -368,7 +368,7 @@ def setup_telepresence(intercept: bool, install: bool, debug: bool):
                 "--timeout=300s",
                 "deployment/mlrun-api-chief",
                 "-n",
-                "mlrun",
+                namespace,
             ],
             debug=debug,
         )
@@ -376,7 +376,7 @@ def setup_telepresence(intercept: bool, install: bool, debug: bool):
             [
                 "telepresence",
                 "--namespace",
-                "mlrun",
+                namespace,
                 "intercept",
                 "mlrun-api-chief",
                 "--service",
@@ -421,7 +421,7 @@ def configure_metallb(debug: bool):
     )
     if "NotFound" in res.stderr:
         with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".yaml", mode="w", encoding="utf-8"
+                delete=False, suffix=".yaml", mode="w", encoding="utf-8"
         ) as tmpf:
             tmpf.write(METALLB_CONFIG_YAML)
             tmpf.flush()
@@ -504,18 +504,18 @@ def add_helm_repositories(debug: bool):
 
 
 def setup_registry_secret(
-    docker_user: str, docker_pass: str, docker_server: str, debug: bool
+        docker_user: str, docker_pass: str, docker_server: str, namespace: str, debug: bool
 ):
     echo_color("Setting up Docker registry secret.")
     ns_cmd = subprocess.run(
-        ["kubectl", "create", "namespace", "mlrun", "--dry-run=client", "-o", "yaml"],
+        ["kubectl", "create", "namespace", namespace, "--dry-run=client", "-o", "yaml"],
         capture_output=True,
         text=True,
     )
     run_command(["kubectl", "apply", "-f", "-"], input_data=ns_cmd.stdout, debug=debug)
 
     res = subprocess.run(
-        ["kubectl", "-n", "mlrun", "get", "secret", "registry-credentials"],
+        ["kubectl", "-n", namespace, "get", "secret", "registry-credentials"],
         capture_output=True,
         text=True,
     )
@@ -524,7 +524,7 @@ def setup_registry_secret(
             [
                 "kubectl",
                 "-n",
-                "mlrun",
+                namespace,
                 "create",
                 "secret",
                 "docker-registry",
@@ -593,7 +593,7 @@ def get_latest_valid_version(tags_url):
     return latest_version
 
 
-def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: bool):
+def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, namespace: str, debug: bool):
     if not ce_version:
         ce_version = get_latest_valid_version(
             "https://api.github.com/repos/mlrun/ce/tags"
@@ -603,7 +603,7 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
     add_helm_repositories(debug=debug)
 
     res = subprocess.run(
-        ["helm", "status", "mlrun-admin", "-n", "mlrun"],
+        ["helm", "status", "mlrun-admin", "-n", namespace],
         capture_output=True,
         text=True,
     )
@@ -612,7 +612,7 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
             [
                 "helm",
                 "--namespace",
-                "mlrun",
+                namespace,
                 "upgrade",
                 "--install",
                 "mlrun-admin",
@@ -630,7 +630,7 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
     registry_url = f"{server.rstrip('/')}/{user}"
     install_args = [
         "--namespace",
-        "mlrun",
+        namespace,
         "--create-namespace",
         "--set",
         f"global.registry.url={registry_url}",
@@ -671,7 +671,8 @@ def setup_ce(use_kfp_v2: bool, user: str, server: str, ce_version: str, debug: b
 
 
 def upgrade_images(
-    mlrun_ver: str, nuclio_ver: str, ce_dir: Path, user: str, server: str, branch: str, arch: str, debug: bool
+        mlrun_ver: str, nuclio_ver: str, ce_dir: Path, user: str, server: str, branch: str, arch: str, namespace: str,
+        debug: bool
 ):
     if not ce_dir.is_dir():
         run_command(["git", "clone", REPO_URL, str(ce_dir)], debug=debug)
@@ -710,7 +711,7 @@ def upgrade_images(
             "mlrun",
             ".",
             "--namespace",
-            "mlrun",
+            namespace,
             "--reuse-values",
             "--set",
             f"global.registry.url={registry_url}",
@@ -796,7 +797,7 @@ INGRESS_HOSTS = [
 ]
 
 
-def create_ingress(debug: bool):
+def create_ingress(namespace: str, debug: bool):
     typer.echo("Ensuring Ingress resources are created...")
 
     traefik_found = is_traefik_installed(debug=debug)
@@ -807,7 +808,7 @@ def create_ingress(debug: bool):
         "kind": "Ingress",
         "metadata": {
             "name": "mlrun-ce-ingress",
-            "namespace": "mlrun",
+            "namespace": namespace,
             "annotations": {},
         },
         "spec": {"ingressClassName": ingress_class, "rules": []},
@@ -860,111 +861,122 @@ def patch_mlrun_env():
 
 
 def install_ce_on_docker(
-    user: str,
-    passwd: str,
-    server: str,
-    ce_dir: Path,
-    use_kfp_v2: bool,
-    clear_ns: bool,
-    intercept: bool,
-    install_tel: bool,
-    ce_ver: str,
-    mlrun_ver: str,
-    nuclio_ver: str,
-    branch: str,
-    arch: str,
-    debug: bool,
+        user: str,
+        passwd: str,
+        server: str,
+        ce_dir: Path,
+        use_kfp_v2: bool,
+        clear_ns: bool,
+        intercept: bool,
+        install_tel: bool,
+        ce_ver: str,
+        mlrun_ver: str,
+        nuclio_ver: str,
+        branch: str,
+        arch: str,
+        namespace: str,
+        debug: bool,
 ):
     for c in REQUIRED_COMMANDS:
         check_command_exists(c)
     if clear_ns:
-        clear_namespaces(debug)
+        clear_namespaces(namespace, debug)
     (Path.home() / "mlrun-data").mkdir(exist_ok=True)
 
     create_virtual_interface(debug)
     persist_loopbacks_on_windows(debug)
     configure_metallb(debug)
     setup_nginx(debug)
-    setup_registry_secret(user, passwd, server, debug)
+    setup_registry_secret(user, passwd, server,namespace, debug)
     write_hosts(debug)
-    setup_ce(use_kfp_v2, user, server, ce_ver, debug)
-    upgrade_images(mlrun_ver, nuclio_ver, ce_dir, user, server, branch, arch, debug)
-    create_ingress(debug)
-    setup_telepresence(intercept, install_tel, debug)
+    setup_ce(use_kfp_v2, user, server, ce_ver, namespace, debug)
+    upgrade_images(mlrun_ver, nuclio_ver, ce_dir, user, server, branch, arch, namespace, debug)
+    create_ingress(namespace, debug)
+    setup_telepresence(
+        intercept=intercept,
+        install_telepresence=install_tel,
+        namespace=namespace,
+        debug=debug,
+    )
     patch_mlrun_env()
     echo_color("MLRun CE installation complete!")
 
 
 @app.command()
 def install(
-    ctx: typer.Context,
-    docker_user: str = typer.Option(
-        ...,
-        help="Docker username for pulling/pushing images."
-    ),
-    docker_password: str = typer.Option(
-        ...,
-        help="Password or token for the specified Docker user."
-    ),
-    docker_server: str = typer.Option(
-        ...,
-        help="Docker registry server (e.g., 'docker.io' or a private registry)."
-    ),
-    ce_folder: Path = typer.Option(
-        Path.home() / "mlrun-ce",
-        "--ce-folder",
-        help="Folder in which to clone and store the MLRun CE source."
-    ),
-    use_kfp_v2: bool = typer.Option(
-        False,
-        "--use-kfp-v2",
-        help="Enable Kubeflow Pipelines V2 integration."
-    ),
-    clear_k8s_namespaces: bool = typer.Option(
-        False,
-        "--clear-namespaces",
-        help="Remove existing MLRun-related Kubernetes namespaces before install."
-    ),
-    intercept: bool = typer.Option(
-        False,
-        "--intercept",
-        help="Intercept the MLRun API Chief deployment using Telepresence."
-    ),
-    install_tel: bool = typer.Option(
-        False,
-        "--install-telepresence",
-        help="Install Telepresence if not found on the system."
-    ),
-    ce_version: str = typer.Option(
-        "",
-        "--ce-version",
-        help="MLRun CE chart version to install. If empty, fetches the latest valid version."
-    ),
-    mlrun_version: str = typer.Option(
-        "",
-        "--mlrun-version",
-        help="MLRun version (image tag) to use. If empty, fetches the latest valid version."
-    ),
-    nuclio_version: str = typer.Option(
-        "",
-        "--nuclio-version",
-        help="Nuclio version (image tag) to use. If empty, fetches the latest valid version."
-    ),
-    branch: str = typer.Option(
-        "",
-        "--branch",
-        help="Git branch name to check out when upgrading images from the CE repo."
-    ),
-    debug: bool = typer.Option(
-        "",
-        "--debug",
-        help="Enable debug mode for more verbose log output."
-    ),
-    arch: str = typer.Option(
-        platform.machine(),
-        "--arch",
-        help="Processor arch to use."
-    ),
+        ctx: typer.Context,
+        docker_user: str = typer.Option(
+            ...,
+            help="Docker username for pulling/pushing images."
+        ),
+        docker_password: str = typer.Option(
+            ...,
+            help="Password or token for the specified Docker user."
+        ),
+        docker_server: str = typer.Option(
+            ...,
+            help="Docker registry server (e.g., 'docker.io' or a private registry)."
+        ),
+        ce_folder: Path = typer.Option(
+            Path.home() / "mlrun-ce",
+            "--ce-folder",
+            help="Folder in which to clone and store the MLRun CE source."
+        ),
+        use_kfp_v2: bool = typer.Option(
+            False,
+            "--use-kfp-v2",
+            help="Enable Kubeflow Pipelines V2 integration."
+        ),
+        clear_k8s_namespaces: bool = typer.Option(
+            False,
+            "--clear-namespaces",
+            help="Remove existing MLRun-related Kubernetes namespaces before install."
+        ),
+        intercept: bool = typer.Option(
+            False,
+            "--intercept",
+            help="Intercept the MLRun API Chief deployment using Telepresence."
+        ),
+        install_tel: bool = typer.Option(
+            False,
+            "--install-telepresence",
+            help="Install Telepresence if not found on the system."
+        ),
+        ce_version: str = typer.Option(
+            "",
+            "--ce-version",
+            help="MLRun CE chart version to install. If empty, fetches the latest valid version."
+        ),
+        mlrun_version: str = typer.Option(
+            "",
+            "--mlrun-version",
+            help="MLRun version (image tag) to use. If empty, fetches the latest valid version."
+        ),
+        nuclio_version: str = typer.Option(
+            "",
+            "--nuclio-version",
+            help="Nuclio version (image tag) to use. If empty, fetches the latest valid version."
+        ),
+        branch: str = typer.Option(
+            "",
+            "--branch",
+            help="Git branch name to check out when upgrading images from the CE repo."
+        ),
+        namespace: str = typer.Option(
+            "",
+            "--namespace",
+            help="Kubernetes namespaceo."
+        ),
+        debug: bool = typer.Option(
+            "",
+            "--debug",
+            help="Enable debug mode for more verbose log output."
+        ),
+        arch: str = typer.Option(
+            platform.machine(),
+            "--arch",
+            help="Processor arch to use."
+        ),
 ):
     install_ce_on_docker(
         docker_user,
@@ -980,36 +992,44 @@ def install(
         nuclio_version,
         branch,
         arch,
+        namespace,
         debug,
     )
 
+
 @app.command()
 def intercept_only(
-    ctx: typer.Context,
-    install_tel: bool = typer.Option(
-        False,
-        "--install-telepresence",
-        help="Install Telepresence if not installed."
-    ),
-    debug: bool = typer.Option(
-        "",
-        "--debug",
-        help="Enable debug mode for more verbose log output."
-    ),
+        ctx: typer.Context,
+        install_tel: bool = typer.Option(
+            False,
+            "--install-telepresence",
+            help="Install Telepresence if not installed."
+        ),
+        namespace: str = typer.Option(
+            "",
+            "--namespace",
+            help="Kubernetes namespaceo."
+        ),
+        debug: bool = typer.Option(
+            "",
+            "--debug",
+            help="Enable debug mode for more verbose log output."
+        ),
 ):
     """
     Only intercept the MLRun API Chief deployment (without re-installing everything).
     """
-    setup_telepresence(intercept=True, install=install_tel, debug=debug)
+    setup_telepresence(intercept=True, install_telepresence=install_tel, namespace=namespace, debug=debug)
+
 
 @app.command()
 def unintercept(
-    ctx: typer.Context,
-    debug: bool = typer.Option(
-        "",
-        "--debug",
-        help="Enable debug mode for more verbose log output."
-    ),
+        ctx: typer.Context,
+        namespace: str, debug: bool = typer.Option(
+            "",
+            "--debug",
+            help="Enable debug mode for more verbose log output."
+        ),
 ):
     """
     Disconnect Telepresence and leave the MLRun API Chief intercept.
