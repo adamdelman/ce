@@ -963,7 +963,7 @@ def install(
             help="Git branch name to check out when upgrading images from the CE repo."
         ),
         namespace: str = typer.Option(
-            "",
+            "mlrun",
             "--namespace",
             help="Kubernetes namespaceo."
         ),
@@ -1006,7 +1006,7 @@ def intercept_only(
             help="Install Telepresence if not installed."
         ),
         namespace: str = typer.Option(
-            "",
+            "mlrun",
             "--namespace",
             help="Kubernetes namespaceo."
         ),
@@ -1024,12 +1024,7 @@ def intercept_only(
 
 @app.command()
 def unintercept(
-        ctx: typer.Context,
-        namespace: str, debug: bool = typer.Option(
-            "",
-            "--debug",
-            help="Enable debug mode for more verbose log output."
-        ),
+    ctx: typer.Context,
 ):
     """
     Disconnect Telepresence and leave the MLRun API Chief intercept.
