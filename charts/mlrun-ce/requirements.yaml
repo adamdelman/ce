@@ -15,7 +15,7 @@ dependencies:
     condition: minio.enabled
   - name: spark-operator
     repository: "https://kubeflow.github.io/spark-operator"
-    version: "1.1.25"
+    version: "2.1.0"
     condition: spark-operator.enabled
   - name: kube-prometheus-stack
     repository: "https://prometheus-community.github.io/helm-charts"
