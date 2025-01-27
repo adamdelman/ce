@@ -43,3 +43,9 @@ pipelines:
     cacheImage:
       repository: gcr.io/google-containers/busybox
       tag: latest
+
+  ui:
+    container:
+      env:
+        - name: DISABLE_GKE_METADATA
+          value: "true"
