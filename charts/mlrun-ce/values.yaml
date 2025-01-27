@@ -267,9 +267,11 @@ spark-operator:
   fullnameOverride: spark-operator
   webhook:
     enable: true
-  serviceAccounts:
-    spark:
-      name: "sparkapp"
+  spark:
+    jobNamespaces:
+      - mlrun
+    serviceAccount:
+      name: sparkapp
 
 pipelines:
   enabled: true
