@@ -18,11 +18,6 @@ pipelines:
     ui:
       repository: gcr.io/ml-pipeline/frontend
       tag: 2.3.0
-      deployment:
-        name: ml-pipeline-ui
-        env:
-          - name: DISABLE_GKE_METADATA
-            value: "false"
     viewerCrdController:
       repository: gcr.io/ml-pipeline/viewer-crd-controller
       tag: 2.3.0
@@ -48,5 +43,3 @@ pipelines:
     cacheImage:
       repository: gcr.io/google-containers/busybox
       tag: latest
-
-
