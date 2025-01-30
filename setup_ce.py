@@ -356,7 +356,7 @@ def setup_telepresence(intercept: bool, install_telepresence: bool, namespace: s
         )
         run_command(["telepresence", "helm", "install"], debug=debug, raise_on_error=False)
         run_command(
-            ["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=120s"],
+            ["telepresence", "helm", "upgrade", "--set", "timeouts.agentArrival=300s"],
             debug=debug,
         )
         run_command(["telepresence", "connect"], debug=debug)
@@ -410,7 +410,7 @@ def configure_metallb(debug: bool):
             "--for=condition=ready",
             "pod",
             "--selector=app=metallb",
-            "--timeout=90s",
+            "--timeout=300s",
         ],
         debug=debug,
     )
@@ -887,7 +887,7 @@ def install_ce_on_docker(
     persist_loopbacks_on_windows(debug)
     configure_metallb(debug)
     setup_nginx(debug)
-    setup_registry_secret(user, passwd, server,namespace, debug)
+    setup_registry_secret(user, passwd, server, namespace, debug)
     write_hosts(debug)
     setup_ce(use_kfp_v2, user, server, ce_ver, namespace, debug)
     upgrade_images(mlrun_ver, nuclio_ver, ce_dir, user, server, branch, arch, namespace, debug)
@@ -968,7 +968,7 @@ def install(
             help="Kubernetes namespaceo."
         ),
         debug: bool = typer.Option(
-            "",
+            False,
             "--debug",
             help="Enable debug mode for more verbose log output."
         ),
@@ -1011,7 +1011,7 @@ def intercept_only(
             help="Kubernetes namespaceo."
         ),
         debug: bool = typer.Option(
-            "",
+            False,
             "--debug",
             help="Enable debug mode for more verbose log output."
         ),
@@ -1024,7 +1024,12 @@ def intercept_only(
 
 @app.command()
 def unintercept(
-    ctx: typer.Context,
+        ctx: typer.Context,
+        debug: bool = typer.Option(
+            False,
+            "--debug",
+            help="Enable debug mode for more verbose log output."
+        ),
 ):
     """
     Disconnect Telepresence and leave the MLRun API Chief intercept.
