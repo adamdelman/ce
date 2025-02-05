@@ -190,6 +190,7 @@ jupyterNotebook:
     repository: quay.io/mlrun/jupyter
     tag: 1.7.1
     pullPolicy: IfNotPresent
+    pullSecrets: []
   busybox:
     image: busybox
     tag: 1.35
